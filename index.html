@@ -1299,7 +1299,7 @@ function AddExpenseModal({
       paidBy,
       participants,
       splitType,
-      customSplits: splitType === 'custom' ? Object.fromEntries(participants.map(pid => [pid, parseFloat(customAmounts[pid]) || 0])) : undefined,
+      customSplits: splitType === 'custom' ? Object.fromEntries(participants.map(pid => [pid, parseFloat(customAmounts[pid]) || 0])) : null,
       settledParticipants: isEditing ? (expense.settledParticipants || []).filter(pid => participants.includes(pid)) : []
     };
     onSave(savedExpense);
@@ -2154,7 +2154,7 @@ function App() {
     const expenses = trip.expenses.some(e => e.id === expense.id) ? trip.expenses.map(e => e.id === expense.id ? expense : e) : [...trip.expenses, expense];
     updateTripDoc(trip.id, {
       expenses
-    });
+    }).catch(err => alert("Couldn't save that expense: " + err.message));
     setShowAddExpense(false);
     setEditingExpense(null);
   }
@@ -2165,7 +2165,7 @@ function App() {
   function deleteExpense(id) {
     updateTripDoc(trip.id, {
       expenses: trip.expenses.filter(e => e.id !== id)
-    });
+    }).catch(err => alert("Couldn't delete that expense: " + err.message));
   }
   function toggleSettleShare(expenseId, personId) {
     const expenses = trip.expenses.map(e => {
@@ -2183,13 +2183,17 @@ function App() {
     });
     updateTripDoc(trip.id, {
       expenses
-    });
+    }).catch(err => alert("Couldn't update that — try again: " + err.message));
   }
   async function saveTrip(newTrip) {
-    const id = await createTripDoc(newTrip, user);
-    setActiveTripId(id);
-    setShowNewTrip(false);
-    setTab('dashboard');
+    try {
+      const id = await createTripDoc(newTrip, user);
+      setActiveTripId(id);
+      setShowNewTrip(false);
+      setTab('dashboard');
+    } catch (err) {
+      alert("Couldn't create that trip: " + err.message);
+    }
   }
   function updateTrip(updatedTrip) {
     const {
@@ -2198,24 +2202,24 @@ function App() {
       memberInfo,
       ...data
     } = updatedTrip;
-    updateTripDoc(id, data);
+    updateTripDoc(id, data).catch(err => alert("Couldn't save trip changes: " + err.message));
     setShowEditTrip(false);
   }
   function archiveTrip(id) {
     updateTripDoc(id, {
       archived: true
-    });
+    }).catch(err => alert("Couldn't archive that trip: " + err.message));
     setShowArchiveTrip(false);
     setTab('dashboard');
   }
   function restoreTrip(id) {
     updateTripDoc(id, {
       archived: false
-    });
+    }).catch(err => alert("Couldn't restore that trip: " + err.message));
     setActiveTripId(id);
   }
   function deleteTripPermanently(id) {
-    deleteTripDoc(id);
+    deleteTripDoc(id).catch(err => alert("Couldn't delete that trip: " + err.message));
     setDeleteArchivedId(null);
   }
   const navItems = [{
@@ -2386,16 +2390,4 @@ function App() {
       setShowArchivedTrips(false);
     },
     onDeleteRequest: id => setDeleteArchivedId(id)
-  }), deleteArchivedId && /*#__PURE__*/React.createElement(ConfirmModal, {
-    title: "Delete this trip permanently?",
-    message: "This removes \"" + (archivedTrips.find(t => t.id === deleteArchivedId) || {}).name + "\" and all its expenses for good. This can't be undone.",
-    confirmLabel: "Delete permanently",
-    cancelLabel: "Keep it archived",
-    onCancel: () => setDeleteArchivedId(null),
-    onConfirm: () => deleteTripPermanently(deleteArchivedId)
-  }));
-}
-ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
-</script>
-</body>
-</html>
+  }), deleteArchivedId && /*#__PURE__
