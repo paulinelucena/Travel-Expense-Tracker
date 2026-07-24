@@ -1907,27 +1907,17 @@ function PersonGroupCard({
     className: "font-display font-semibold truncate"
   }, person.name), /*#__PURE__*/React.createElement("p", {
     className: "text-xs text-slate2"
-  }, related.length, " expense", related.length === 1 ? '' : 's')), /*#__PURE__*/React.createElement("div", {
-    className: "flex flex-col items-end shrink-0 mr-1"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "tab-num text-sm font-semibold text-ink"
-  }, formatShort(related.reduce((sum, e) => sum + (getShares(e)[person.id] || 0), 0))), balance && /*#__PURE__*/React.createElement("span", {
-    className: "tab-num text-[11px] font-semibold " + (balance.net > 0.5 ? "text-teal" : balance.net < -0.5 ? "text-coral" : "text-slate2")
-  }, balance.net > 0.5 ? '+' : '', formatShort(balance.net))), /*#__PURE__*/React.createElement(IconChevron, {
+  }, related.length, " expense", related.length === 1 ? '' : 's')), balance && /*#__PURE__*/React.createElement("span", {
+    className: "tab-num text-sm font-semibold shrink-0 " + (balance.net > 0.5 ? "text-teal" : balance.net < -0.5 ? "text-coral" : "text-slate2")
+  }, balance.net > 0.5 ? '+' : '', formatShort(balance.net)), /*#__PURE__*/React.createElement(IconChevron, {
     className: "w-4 h-4 text-slate2 transition-transform shrink-0 " + (open ? "rotate-90" : "")
   })), open && /*#__PURE__*/React.createElement("div", {
     className: "px-6 pb-5"
   }, /*#__PURE__*/React.createElement("div", {
     className: "perf-divider mb-4"
   }), balance && /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-4 gap-3 mb-4"
+    className: "grid grid-cols-3 gap-3 mb-4"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "rounded-2xl bg-paper px-3 py-3 text-center"
-  }, /*#__PURE__*/React.createElement("p", {
-    className: "text-[11px] font-semibold uppercase tracking-wide text-slate2 mb-1"
-  }, "Total"), /*#__PURE__*/React.createElement("p", {
-    className: "tab-num font-semibold text-sm"
-  }, formatShort(related.reduce((sum, e) => sum + (getShares(e)[person.id] || 0), 0)))), /*#__PURE__*/React.createElement("div", {
     className: "rounded-2xl bg-paper px-3 py-3 text-center"
   }, /*#__PURE__*/React.createElement("p", {
     className: "text-[11px] font-semibold uppercase tracking-wide text-slate2 mb-1"
