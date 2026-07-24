@@ -362,6 +362,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 })();
 
 </script>
+<!-- Firebase: email/password auth + Firestore sync across devices -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script>
 function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
 const {
@@ -370,6 +374,100 @@ const {
   useRef,
   useEffect
 } = React;
+
+/* ------------------------------------------------- Firebase setup ---- */
+/* 1. Create a free project at https://console.firebase.google.com
+   2. Build > Authentication > Sign-in method > enable "Email/Password"
+   3. Build > Firestore Database > Create database (production mode is fine)
+   4. Project settings (gear icon) > General > "Your apps" > Web app > copy the config below
+   5. Paste your own values in place of the placeholders here */
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const usersCollection = db.collection('users');
+const tripsCollection = db.collection('trips');
+
+async function ensureUserDoc(user, name) {
+  const ref = usersCollection.doc(user.uid);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    await ref.set({
+      email: (user.email || '').toLowerCase(),
+      name: name || user.email,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }
+}
+function subscribeTrips(uid, callback, onError) {
+  return tripsCollection.where('members', 'array-contains', uid).onSnapshot(snap => {
+    const trips = snap.docs.map(d => ({
+      id: d.id,
+      ...d.data()
+    }));
+    callback(trips);
+  }, err => {
+    console.error('Trip sync error:', err);
+    if (onError) onError(err);
+  });
+}
+async function createTripDoc(trip, user) {
+  const ref = tripsCollection.doc();
+  await ref.set({
+    name: trip.name,
+    location: trip.location,
+    startDate: trip.startDate,
+    endDate: trip.endDate,
+    people: trip.people,
+    expenses: trip.expenses || [],
+    archived: false,
+    members: [user.uid],
+    memberInfo: {
+      [user.uid]: {
+        email: (user.email || '').toLowerCase(),
+        name: user.displayName || user.email
+      }
+    },
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  return ref.id;
+}
+async function updateTripDoc(tripId, data) {
+  await tripsCollection.doc(tripId).set(data, {
+    merge: true
+  });
+}
+async function deleteTripDoc(tripId) {
+  await tripsCollection.doc(tripId).delete();
+}
+async function inviteMemberByEmail(tripId, email) {
+  const clean = email.toLowerCase().trim();
+  const snap = await usersCollection.where('email', '==', clean).limit(1).get();
+  if (snap.empty) {
+    throw new Error("No Ledger & Luggage account found for " + email + ". They need to sign up first.");
+  }
+  const memberUid = snap.docs[0].id;
+  const memberData = snap.docs[0].data();
+  await tripsCollection.doc(tripId).update({
+    members: firebase.firestore.FieldValue.arrayUnion(memberUid),
+    ["memberInfo." + memberUid]: {
+      email: memberData.email,
+      name: memberData.name || memberData.email
+    }
+  });
+}
+async function removeTripMember(tripId, memberUid) {
+  await tripsCollection.doc(tripId).update({
+    members: firebase.firestore.FieldValue.arrayRemove(memberUid)
+  });
+}
 
 /* ---------------------------------------------------------- helpers ---- */
 
@@ -433,26 +531,6 @@ function dateRange(start, end) {
 }
 function uid(prefix) {
   return prefix + Math.random().toString(36).slice(2, 9);
-}
-const STORAGE_KEY = 'ledgerLuggage.trips.v1';
-function loadTrips() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return initialTrips;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    return initialTrips;
-  } catch (err) {
-    console.error('Could not load saved trips, starting fresh.', err);
-    return initialTrips;
-  }
-}
-function saveTrips(trips) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(trips));
-  } catch (err) {
-    console.error('Could not save trips.', err);
-  }
 }
 function getShares(expense) {
   if (expense.splitType === 'custom' && expense.customSplits) return expense.customSplits;
@@ -1428,8 +1506,75 @@ function NewTripModal({
 
 /* ------------------------------------------------------------ Edit Trip --- */
 
+function MemberManager({
+  trip,
+  currentUid
+}) {
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const memberInfo = trip.memberInfo || {};
+  const members = trip.members || [];
+  async function handleInvite(e) {
+    e.preventDefault();
+    setError('');
+    setNotice('');
+    if (!email.trim()) return;
+    setBusy(true);
+    try {
+      await inviteMemberByEmail(trip.id, email.trim());
+      setNotice(email.trim() + " can now see this trip.");
+      setEmail('');
+    } catch (err) {
+      setError(err.message || 'Could not add that person.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  function handleRemove(uidToRemove) {
+    if (uidToRemove === currentUid) return;
+    removeTripMember(trip.id, uidToRemove);
+  }
+  return /*#__PURE__*/React.createElement(Field, {
+    label: "Who can see this trip"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "space-y-1.5 mb-2"
+  }, members.map(uidM => {
+    const info = memberInfo[uidM] || {};
+    return /*#__PURE__*/React.createElement("div", {
+      key: uidM,
+      className: "flex items-center justify-between gap-2 text-sm rounded-xl bg-paper px-3 py-2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "truncate"
+    }, info.name || info.email || uidM, uidM === currentUid ? " (you)" : ''), uidM !== currentUid && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => handleRemove(uidM),
+      className: "text-xs font-semibold text-coral hover:underline focus-ring rounded shrink-0"
+    }, "Remove"));
+  })), /*#__PURE__*/React.createElement("form", {
+    onSubmit: handleInvite,
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    type: "email",
+    value: email,
+    onChange: e => setEmail(e.target.value),
+    placeholder: "Invite by email (they must have an account)"
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "submit",
+    disabled: busy,
+    className: "shrink-0 px-3 py-2 rounded-xl bg-teal text-white text-sm font-semibold disabled:opacity-40 focus-ring"
+  }, busy ? "\u2026" : "Add")), error && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-coral mt-1.5"
+  }, error), notice && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-teal mt-1.5"
+  }, notice));
+}
+
 function EditTripModal({
   trip,
+  currentUid,
   onClose,
   onSave
 }) {
@@ -1543,7 +1688,10 @@ function EditTripModal({
     type: "button",
     onClick: addPerson,
     className: "mt-2 text-sm font-semibold text-teal hover:underline focus-ring rounded"
-  }, "+ Add another traveler")), /*#__PURE__*/React.createElement("button", {
+  }, "+ Add another traveler")), /*#__PURE__*/React.createElement(MemberManager, {
+    trip: trip,
+    currentUid: currentUid
+  }), /*#__PURE__*/React.createElement("button", {
     onClick: handleSubmit,
     disabled: !canSubmit,
     className: "w-full mt-3 py-3 rounded-xl bg-teal text-white font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal-dark transition focus-ring"
@@ -1878,17 +2026,113 @@ function EmptyState({
 
 /* ------------------------------------------------------------------ App --- */
 
+/* --------------------------------------------------------- Login screen --- */
+
+function LoginScreen() {
+  const [mode, setMode] = useState('signin');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      if (mode === 'signup') {
+        const cred = await auth.createUserWithEmailAndPassword(email.trim(), password);
+        const displayName = name.trim() || email.trim();
+        await cred.user.updateProfile({
+          displayName
+        });
+        await ensureUserDoc(cred.user, displayName);
+      } else {
+        await auth.signInWithEmailAndPassword(email.trim(), password);
+      }
+    } catch (err) {
+      setError(err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "min-h-screen flex items-center justify-center px-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "w-full max-w-sm bg-card rounded-3xl shadow-sm px-6 py-8"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-center mb-6"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inline-flex w-10 h-10 rounded-xl bg-teal text-white items-center justify-center font-display font-bold text-lg"
+  }, "L"), /*#__PURE__*/React.createElement("h1", {
+    className: "font-display text-xl font-semibold mt-3"
+  }, "Ledger & Luggage"), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-slate2"
+  }, "Every peso, every place")), /*#__PURE__*/React.createElement("form", {
+    onSubmit: handleSubmit,
+    className: "space-y-3"
+  }, mode === 'signup' && /*#__PURE__*/React.createElement(Field, {
+    label: "Your name"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: name,
+    onChange: e => setName(e.target.value),
+    placeholder: "e.g. Pauline"
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Email"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    type: "email",
+    required: true,
+    value: email,
+    onChange: e => setEmail(e.target.value),
+    placeholder: "you@example.com"
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Password"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    type: "password",
+    required: true,
+    minLength: 6,
+    value: password,
+    onChange: e => setPassword(e.target.value),
+    placeholder: mode === 'signup' ? "At least 6 characters" : ""
+  })), error && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-coral"
+  }, error), /*#__PURE__*/React.createElement("button", {
+    type: "submit",
+    disabled: busy,
+    className: "w-full py-3 rounded-xl bg-teal text-white font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal-dark transition focus-ring"
+  }, busy ? "Please wait\u2026" : mode === 'signup' ? "Create account" : "Sign in")), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => {
+      setError('');
+      setMode(mode === 'signup' ? 'signin' : 'signup');
+    },
+    className: "w-full mt-4 text-xs font-semibold text-teal hover:underline focus-ring rounded"
+  }, mode === 'signup' ? "Already have an account? Sign in" : "New here? Create an account")));
+}
+
 function App() {
-  const [trips, setTrips] = useState(loadTrips);
+  const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
   useEffect(() => {
-    saveTrips(trips);
-  }, [trips]);
+    return auth.onAuthStateChanged(setUser);
+  }, []);
+  const [trips, setTrips] = useState([]);
+  useEffect(() => {
+    if (!user) {
+      setTrips([]);
+      return;
+    }
+    const unsubscribe = subscribeTrips(user.uid, setTrips);
+    return unsubscribe;
+  }, [user && user.uid]);
   const activeTrips = trips.filter(t => !t.archived);
   const archivedTrips = trips.filter(t => t.archived);
-  const [activeTripId, setActiveTripId] = useState(() => {
-    const first = trips.find(t => !t.archived);
-    return first ? first.id : null;
-  });
+  const [activeTripId, setActiveTripId] = useState(null);
+  useEffect(() => {
+    if (!activeTripId && activeTrips.length > 0) setActiveTripId(activeTrips[0].id);
+  }, [trips]);
   const [tab, setTab] = useState('dashboard');
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
@@ -1898,11 +2142,19 @@ function App() {
   const [showArchivedTrips, setShowArchivedTrips] = useState(false);
   const [deleteArchivedId, setDeleteArchivedId] = useState(null);
   const trip = activeTrips.find(t => t.id === activeTripId) || activeTrips[0];
+  if (user === undefined) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "min-h-screen flex items-center justify-center text-sm text-slate2"
+    }, "Loading\u2026");
+  }
+  if (!user) {
+    return /*#__PURE__*/React.createElement(LoginScreen, null);
+  }
   function saveExpense(expense) {
-    setTrips(prev => prev.map(t => t.id === trip.id ? {
-      ...t,
-      expenses: t.expenses.some(e => e.id === expense.id) ? t.expenses.map(e => e.id === expense.id ? expense : e) : [...t.expenses, expense]
-    } : t));
+    const expenses = trip.expenses.some(e => e.id === expense.id) ? trip.expenses.map(e => e.id === expense.id ? expense : e) : [...trip.expenses, expense];
+    updateTripDoc(trip.id, {
+      expenses
+    });
     setShowAddExpense(false);
     setEditingExpense(null);
   }
@@ -1911,59 +2163,59 @@ function App() {
     setEditingExpense(null);
   }
   function deleteExpense(id) {
-    setTrips(prev => prev.map(t => t.id === trip.id ? {
-      ...t,
-      expenses: t.expenses.filter(e => e.id !== id)
-    } : t));
+    updateTripDoc(trip.id, {
+      expenses: trip.expenses.filter(e => e.id !== id)
+    });
   }
   function toggleSettleShare(expenseId, personId) {
-    setTrips(prev => prev.map(t => t.id !== trip.id ? t : {
-      ...t,
-      expenses: t.expenses.map(e => {
-        if (e.id !== expenseId) return e;
-        const settled = new Set(e.settledParticipants || []);
-        if (settled.has(personId)) {
-          settled.delete(personId);
-        } else {
-          settled.add(personId);
-        }
-        return {
-          ...e,
-          settledParticipants: Array.from(settled)
-        };
-      })
-    }));
+    const expenses = trip.expenses.map(e => {
+      if (e.id !== expenseId) return e;
+      const settled = new Set(e.settledParticipants || []);
+      if (settled.has(personId)) {
+        settled.delete(personId);
+      } else {
+        settled.add(personId);
+      }
+      return {
+        ...e,
+        settledParticipants: Array.from(settled)
+      };
+    });
+    updateTripDoc(trip.id, {
+      expenses
+    });
   }
-  function saveTrip(newTrip) {
-    setTrips(prev => [...prev, {
-      ...newTrip,
-      archived: false
-    }]);
-    setActiveTripId(newTrip.id);
+  async function saveTrip(newTrip) {
+    const id = await createTripDoc(newTrip, user);
+    setActiveTripId(id);
     setShowNewTrip(false);
     setTab('dashboard');
   }
   function updateTrip(updatedTrip) {
-    setTrips(prev => prev.map(t => t.id === updatedTrip.id ? updatedTrip : t));
+    const {
+      id,
+      members,
+      memberInfo,
+      ...data
+    } = updatedTrip;
+    updateTripDoc(id, data);
     setShowEditTrip(false);
   }
   function archiveTrip(id) {
-    setTrips(prev => prev.map(t => t.id === id ? {
-      ...t,
+    updateTripDoc(id, {
       archived: true
-    } : t));
+    });
     setShowArchiveTrip(false);
     setTab('dashboard');
   }
   function restoreTrip(id) {
-    setTrips(prev => prev.map(t => t.id === id ? {
-      ...t,
+    updateTripDoc(id, {
       archived: false
-    } : t));
+    });
     setActiveTripId(id);
   }
   function deleteTripPermanently(id) {
-    setTrips(prev => prev.filter(t => t.id !== id));
+    deleteTripDoc(id);
     setDeleteArchivedId(null);
   }
   const navItems = [{
@@ -2030,6 +2282,13 @@ function App() {
     "aria-label": "Archive this trip",
     title: "Archive this trip"
   }, /*#__PURE__*/React.createElement(IconArchive, {
+    className: "w-4 h-4"
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: () => auth.signOut(),
+    className: "p-2 rounded-xl border border-slate2/25 bg-white text-slate2 hover:text-coral hover:border-coral focus-ring",
+    "aria-label": "Sign out",
+    title: "Signed in as " + (user.displayName || user.email) + " \u2014 sign out"
+  }, /*#__PURE__*/React.createElement(IconClose, {
     className: "w-4 h-4"
   })))), trip && /*#__PURE__*/React.createElement("div", {
     className: "max-w-3xl mx-auto px-4 sm:px-6 hidden md:flex gap-1 pb-2"
@@ -2108,6 +2367,7 @@ function App() {
     onSave: saveTrip
   }), showEditTrip && trip && /*#__PURE__*/React.createElement(EditTripModal, {
     trip: trip,
+    currentUid: user.uid,
     onClose: () => setShowEditTrip(false),
     onSave: updateTrip
   }), showArchiveTrip && trip && /*#__PURE__*/React.createElement(ConfirmModal, {
