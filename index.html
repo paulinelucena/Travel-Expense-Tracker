@@ -2390,4 +2390,16 @@ function App() {
       setShowArchivedTrips(false);
     },
     onDeleteRequest: id => setDeleteArchivedId(id)
-  }), deleteArchivedId && /*#__PURE__
+  }), deleteArchivedId && /*#__PURE__*/React.createElement(ConfirmModal, {
+    title: "Delete this trip permanently?",
+    message: "This removes \"" + (archivedTrips.find(t => t.id === deleteArchivedId) || {}).name + "\" and all its expenses for good. This can't be undone.",
+    confirmLabel: "Delete permanently",
+    cancelLabel: "Keep it archived",
+    onCancel: () => setDeleteArchivedId(null),
+    onConfirm: () => deleteTripPermanently(deleteArchivedId)
+  }));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
+</script>
+</body>
+</html>
