@@ -53,6 +53,31 @@
     * { transition: none !important; animation: none !important; }
   }
 
+  /* ---------------------------------------------------------- Dark mode --- */
+  html.dark, .dark body { background-color: #12201E; }
+  .dark .bg-paper { background-color: #12201E !important; }
+  .dark .bg-paper\/90 { background-color: rgba(18,32,30,.9) !important; }
+  .dark .bg-card { background-color: #1A2C2A !important; }
+  .dark .bg-white { background-color: #24413E !important; }
+  .dark .text-ink { color: #EDEAE0 !important; }
+  .dark .text-ink\/80 { color: rgba(237,234,224,.8) !important; }
+  .dark .text-slate2 { color: #93A6A2 !important; }
+  .dark .border-slate2\/10 { border-color: rgba(255,255,255,.08) !important; }
+  .dark .border-slate2\/15 { border-color: rgba(255,255,255,.12) !important; }
+  .dark .border-slate2\/25 { border-color: rgba(255,255,255,.18) !important; }
+  .dark .hover\:border-slate2\/50:hover { border-color: rgba(255,255,255,.35) !important; }
+  .dark .bg-teal-light { background-color: rgba(31,111,107,.35) !important; }
+  .dark .text-teal-dark { color: #8FE0D8 !important; }
+  .dark .bg-coral-light { background-color: rgba(193,68,60,.3) !important; }
+  .dark .text-coral { color: #E8918A !important; }
+  .dark .text-teal { color: #4FBBB3 !important; }
+  .dark .hover\:text-teal:hover { color: #7fd9d1 !important; }
+  .dark .hover\:bg-paper:hover { background-color: #203330 !important; }
+  .dark .bg-ink\/40 { background-color: rgba(0,0,0,.6) !important; }
+  .dark .perf-divider::before, .dark .perf-divider::after, .dark .ticket::before, .dark .ticket::after { background: #12201E; }
+  .dark .perf-divider { border-top-color: rgba(255,255,255,.15); }
+  .dark ::-webkit-scrollbar-thumb { background: #2E4A46; }
+
 </style>
 </head>
 <body class="text-ink">
@@ -406,6 +431,21 @@ async function ensureUserDoc(user, name) {
     });
   }
 }
+function subscribeUserProfile(uid, callback) {
+  return usersCollection.doc(uid).onSnapshot(snap => {
+    callback(snap.exists ? snap.data() : null);
+  });
+}
+async function updateUserProfile(uid, data) {
+  await usersCollection.doc(uid).set(data, {
+    merge: true
+  });
+}
+async function changeUserPassword(user, currentPassword, newPassword) {
+  const cred = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+  await user.reauthenticateWithCredential(cred);
+  await user.updatePassword(newPassword);
+}
 function subscribeTrips(uid, callback, onError) {
   return tripsCollection.where('members', 'array-contains', uid).onSnapshot(snap => {
     const trips = snap.docs.map(d => ({
@@ -500,16 +540,178 @@ const CATEGORIES = [{
   icon: IconDot
 }];
 const catConfig = key => CATEGORIES.find(c => c.key === key) || CATEGORIES[4];
+const CURRENCIES = [{
+  code: 'PHP',
+  symbol: '₱',
+  locale: 'en-PH',
+  name: 'Philippine Peso'
+}, {
+  code: 'USD',
+  symbol: '$',
+  locale: 'en-US',
+  name: 'US Dollar'
+}, {
+  code: 'EUR',
+  symbol: '€',
+  locale: 'de-DE',
+  name: 'Euro'
+}, {
+  code: 'GBP',
+  symbol: '£',
+  locale: 'en-GB',
+  name: 'British Pound'
+}, {
+  code: 'JPY',
+  symbol: '¥',
+  locale: 'ja-JP',
+  name: 'Japanese Yen'
+}, {
+  code: 'CNY',
+  symbol: '¥',
+  locale: 'zh-CN',
+  name: 'Chinese Yuan'
+}, {
+  code: 'KRW',
+  symbol: '₩',
+  locale: 'ko-KR',
+  name: 'South Korean Won'
+}, {
+  code: 'INR',
+  symbol: '₹',
+  locale: 'en-IN',
+  name: 'Indian Rupee'
+}, {
+  code: 'IDR',
+  symbol: 'Rp',
+  locale: 'id-ID',
+  name: 'Indonesian Rupiah'
+}, {
+  code: 'MYR',
+  symbol: 'RM',
+  locale: 'ms-MY',
+  name: 'Malaysian Ringgit'
+}, {
+  code: 'SGD',
+  symbol: 'S$',
+  locale: 'en-SG',
+  name: 'Singapore Dollar'
+}, {
+  code: 'THB',
+  symbol: '฿',
+  locale: 'th-TH',
+  name: 'Thai Baht'
+}, {
+  code: 'VND',
+  symbol: '₫',
+  locale: 'vi-VN',
+  name: 'Vietnamese Dong'
+}, {
+  code: 'HKD',
+  symbol: 'HK$',
+  locale: 'en-HK',
+  name: 'Hong Kong Dollar'
+}, {
+  code: 'TWD',
+  symbol: 'NT$',
+  locale: 'zh-TW',
+  name: 'Taiwan Dollar'
+}, {
+  code: 'AUD',
+  symbol: 'A$',
+  locale: 'en-AU',
+  name: 'Australian Dollar'
+}, {
+  code: 'NZD',
+  symbol: 'NZ$',
+  locale: 'en-NZ',
+  name: 'New Zealand Dollar'
+}, {
+  code: 'CAD',
+  symbol: 'C$',
+  locale: 'en-CA',
+  name: 'Canadian Dollar'
+}, {
+  code: 'MXN',
+  symbol: 'MX$',
+  locale: 'es-MX',
+  name: 'Mexican Peso'
+}, {
+  code: 'BRL',
+  symbol: 'R$',
+  locale: 'pt-BR',
+  name: 'Brazilian Real'
+}, {
+  code: 'CHF',
+  symbol: 'CHF',
+  locale: 'de-CH',
+  name: 'Swiss Franc'
+}, {
+  code: 'AED',
+  symbol: 'د.إ',
+  locale: 'ar-AE',
+  name: 'UAE Dirham'
+}, {
+  code: 'SAR',
+  symbol: '﷼',
+  locale: 'ar-SA',
+  name: 'Saudi Riyal'
+}, {
+  code: 'ZAR',
+  symbol: 'R',
+  locale: 'en-ZA',
+  name: 'South African Rand'
+}, {
+  code: 'NGN',
+  symbol: '₦',
+  locale: 'en-NG',
+  name: 'Nigerian Naira'
+}, {
+  code: 'EGP',
+  symbol: 'E£',
+  locale: 'ar-EG',
+  name: 'Egyptian Pound'
+}];
+const THEME_STORAGE_KEY = 'ledgerLuggage.theme';
+function loadTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    if (saved === 'dark' || saved === 'light') return saved;
+  } catch (err) {}
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+function saveTheme(theme) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch (err) {}
+}
+const CURRENCY_STORAGE_KEY = 'ledgerLuggage.currency';
+function loadCurrency() {
+  try {
+    const code = localStorage.getItem(CURRENCY_STORAGE_KEY);
+    const found = CURRENCIES.find(c => c.code === code);
+    if (found) return found;
+  } catch (err) {}
+  return CURRENCIES[0];
+}
+let CURRENCY = loadCurrency();
+function setCurrency(code) {
+  const found = CURRENCIES.find(c => c.code === code) || CURRENCIES[0];
+  CURRENCY = found;
+  try {
+    localStorage.setItem(CURRENCY_STORAGE_KEY, found.code);
+  } catch (err) {}
+  return found;
+}
 function formatCurrency(n) {
   const v = Number.isFinite(n) ? n : 0;
-  return '₱' + v.toLocaleString('en-PH', {
+  return CURRENCY.symbol + v.toLocaleString(CURRENCY.locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   });
 }
 function formatShort(n) {
   const v = Number.isFinite(n) ? n : 0;
-  return '₱' + v.toLocaleString('en-PH', {
+  return CURRENCY.symbol + v.toLocaleString(CURRENCY.locale, {
     maximumFractionDigits: 0
   });
 }
@@ -842,6 +1044,66 @@ function IconUser(props) {
     r: "3.5"
   }), /*#__PURE__*/React.createElement("path", {
     d: "M4.5 20c1.2-4 4-6 7.5-6s6.3 2 7.5 6"
+  }));
+}
+function IconGear(props) {
+  return /*#__PURE__*/React.createElement("svg", _extends({
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.8",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, props), /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "3"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M19.4 13.5a7.6 7.6 0 0 0 0-3l1.8-1.4-2-3.4-2.1.6a7.6 7.6 0 0 0-2.6-1.5L14 2.5h-4l-.5 2.3a7.6 7.6 0 0 0-2.6 1.5l-2.1-.6-2 3.4L4.6 10.5a7.6 7.6 0 0 0 0 3L2.8 15.9l2 3.4 2.1-.6a7.6 7.6 0 0 0 2.6 1.5l.5 2.3h4l.5-2.3a7.6 7.6 0 0 0 2.6-1.5l2.1.6 2-3.4-1.8-1.4Z"
+  }));
+}
+function IconSun(props) {
+  return /*#__PURE__*/React.createElement("svg", _extends({
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.8",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, props), /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "4"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M12 2.5v2.5M12 19v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M2.5 12H5M19 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"
+  }));
+}
+function IconMoon(props) {
+  return /*#__PURE__*/React.createElement("svg", _extends({
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.8",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, props), /*#__PURE__*/React.createElement("path", {
+    d: "M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5Z"
+  }));
+}
+function IconCamera(props) {
+  return /*#__PURE__*/React.createElement("svg", _extends({
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.8",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, props), /*#__PURE__*/React.createElement("path", {
+    d: "M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "12",
+    cy: "13.5",
+    r: "3.5"
   }));
 }
 
@@ -1740,6 +2002,266 @@ function ArchivedTripsModal({
   })))))));
 }
 
+/* ------------------------------------------------------------- Settings --- */
+
+function SettingsModal({
+  user,
+  profile,
+  theme,
+  onThemeChange,
+  currencyCode,
+  onCurrencyChange,
+  archivedCount,
+  onOpenArchived,
+  onSignOut,
+  onClose
+}) {
+  const fileInputRef = useRef(null);
+  const [name, setName] = useState(profile && profile.name || user.displayName || '');
+  const [savingName, setSavingName] = useState(false);
+  const [nameMsg, setNameMsg] = useState('');
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
+  const [curPw, setCurPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwMsg, setPwMsg] = useState('');
+  const [pwError, setPwError] = useState('');
+  const avatarUrl = profile && profile.avatarDataUrl;
+  const initial = ((profile && profile.name) || user.displayName || user.email || '?').trim().charAt(0).toUpperCase();
+  async function handleSaveName() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setSavingName(true);
+    setNameMsg('');
+    try {
+      await user.updateProfile({
+        displayName: trimmed
+      });
+      await updateUserProfile(user.uid, {
+        name: trimmed
+      });
+      setNameMsg('Saved!');
+    } catch (err) {
+      setNameMsg(err.message || "Couldn't save that.");
+    } finally {
+      setSavingName(false);
+    }
+  }
+  function handlePhotoChange(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setAvatarError('');
+    setAvatarBusy(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = async () => {
+        const size = 160;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const scale = Math.max(size / img.width, size / img.height);
+        const w = img.width * scale,
+          h = img.height * scale;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        try {
+          await updateUserProfile(user.uid, {
+            avatarDataUrl: dataUrl
+          });
+        } catch (err) {
+          setAvatarError(err.message || "Couldn't upload that photo.");
+        } finally {
+          setAvatarBusy(false);
+        }
+      };
+      img.onerror = () => {
+        setAvatarError("That doesn't look like a valid image.");
+        setAvatarBusy(false);
+      };
+      img.src = reader.result;
+    };
+    reader.onerror = () => {
+      setAvatarError("Couldn't read that file.");
+      setAvatarBusy(false);
+    };
+    reader.readAsDataURL(file);
+  }
+  async function handleChangePassword() {
+    setPwError('');
+    setPwMsg('');
+    if (newPw.length < 6) {
+      setPwError('New password must be at least 6 characters.');
+      return;
+    }
+    if (newPw !== confirmPw) {
+      setPwError("New passwords don't match.");
+      return;
+    }
+    setPwBusy(true);
+    try {
+      await changeUserPassword(user, curPw, newPw);
+      setPwMsg('Password updated!');
+      setCurPw('');
+      setNewPw('');
+      setConfirmPw('');
+    } catch (err) {
+      setPwError(err.message || "Couldn't change your password.");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+  return /*#__PURE__*/React.createElement(Modal, {
+    title: "Settings",
+    onClose: onClose,
+    wide: true
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "space-y-6"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h4", {
+    className: "text-xs font-semibold uppercase tracking-wide text-slate2 mb-3"
+  }, "Profile"), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-4"
+  }, avatarUrl ? /*#__PURE__*/React.createElement("img", {
+    src: avatarUrl,
+    alt: "Profile photo",
+    className: "w-16 h-16 rounded-full object-cover shrink-0"
+  }) : /*#__PURE__*/React.createElement("span", {
+    className: "w-16 h-16 rounded-full bg-teal-light text-teal-dark flex items-center justify-center font-display font-bold text-xl shrink-0"
+  }, initial), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => fileInputRef.current && fileInputRef.current.click(),
+    disabled: avatarBusy,
+    className: "inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate2/25 bg-white hover:border-teal hover:text-teal focus-ring disabled:opacity-50"
+  }, /*#__PURE__*/React.createElement(IconCamera, {
+    className: "w-3.5 h-3.5"
+  }), avatarBusy ? "Uploading\u2026" : "Change photo"), /*#__PURE__*/React.createElement("input", {
+    ref: fileInputRef,
+    type: "file",
+    accept: "image/*",
+    className: "hidden",
+    onChange: handlePhotoChange
+  }), avatarError && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-coral mt-1.5"
+  }, avatarError))), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-end gap-2 mt-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex-1"
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "Display name"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: name,
+    onChange: e => {
+      setName(e.target.value);
+      setNameMsg('');
+    },
+    placeholder: "Your name"
+  }))), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: handleSaveName,
+    disabled: savingName || !name.trim(),
+    className: "mb-4 px-4 py-2.5 rounded-xl bg-teal text-white font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal-dark transition focus-ring"
+  }, savingName ? "Saving\u2026" : "Save")), nameMsg && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-teal -mt-3"
+  }, nameMsg)), /*#__PURE__*/React.createElement("div", {
+    className: "border-t border-slate2/15 pt-5"
+  }, /*#__PURE__*/React.createElement("h4", {
+    className: "text-xs font-semibold uppercase tracking-wide text-slate2 mb-3"
+  }, "Appearance"), /*#__PURE__*/React.createElement("div", {
+    className: "inline-flex rounded-xl border border-slate2/25 p-1 gap-1"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => onThemeChange('light'),
+    className: "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold focus-ring " + (theme === 'light' ? "bg-teal text-white" : "text-slate2 hover:text-ink")
+  }, /*#__PURE__*/React.createElement(IconSun, {
+    className: "w-4 h-4"
+  }), " Light"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => onThemeChange('dark'),
+    className: "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold focus-ring " + (theme === 'dark' ? "bg-teal text-white" : "text-slate2 hover:text-ink")
+  }, /*#__PURE__*/React.createElement(IconMoon, {
+    className: "w-4 h-4"
+  }), " Dark"))), /*#__PURE__*/React.createElement("div", {
+    className: "border-t border-slate2/15 pt-5"
+  }, /*#__PURE__*/React.createElement("h4", {
+    className: "text-xs font-semibold uppercase tracking-wide text-slate2 mb-3"
+  }, "Currency"), /*#__PURE__*/React.createElement("select", {
+    value: currencyCode,
+    onChange: e => onCurrencyChange(e.target.value),
+    className: inputCls + " max-w-xs"
+  }, CURRENCIES.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c.code,
+    value: c.code
+  }, c.code, " \u2014 ", c.name, " (", c.symbol, ")"))), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-slate2 mt-2"
+  }, "Changes how amounts are displayed everywhere. It doesn't convert existing numbers.")), /*#__PURE__*/React.createElement("div", {
+    className: "border-t border-slate2/15 pt-5"
+  }, /*#__PURE__*/React.createElement("h4", {
+    className: "text-xs font-semibold uppercase tracking-wide text-slate2 mb-3"
+  }, "Trips"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: onOpenArchived,
+    className: "inline-flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl border border-slate2/25 bg-white hover:border-teal hover:text-teal focus-ring"
+  }, /*#__PURE__*/React.createElement(IconArchive, {
+    className: "w-4 h-4"
+  }), "Archived trips (", archivedCount, ")")), /*#__PURE__*/React.createElement("div", {
+    className: "border-t border-slate2/15 pt-5"
+  }, /*#__PURE__*/React.createElement("h4", {
+    className: "text-xs font-semibold uppercase tracking-wide text-slate2 mb-3"
+  }, "Change password"), /*#__PURE__*/React.createElement(Field, {
+    label: "Current password"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "password",
+    className: inputCls,
+    value: curPw,
+    onChange: e => setCurPw(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-3"
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "New password"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "password",
+    className: inputCls,
+    value: newPw,
+    onChange: e => setNewPw(e.target.value),
+    minLength: 6
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Confirm new password"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "password",
+    className: inputCls,
+    value: confirmPw,
+    onChange: e => setConfirmPw(e.target.value),
+    minLength: 6
+  }))), pwError && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-coral mb-3 -mt-2"
+  }, pwError), pwMsg && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-teal mb-3 -mt-2"
+  }, pwMsg), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: handleChangePassword,
+    disabled: pwBusy || !curPw || !newPw || !confirmPw,
+    className: "px-4 py-2.5 rounded-xl bg-teal text-white font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal-dark transition focus-ring"
+  }, pwBusy ? "Updating\u2026" : "Update password")), /*#__PURE__*/React.createElement("div", {
+    className: "border-t border-slate2/15 pt-5"
+  }, /*#__PURE__*/React.createElement("h4", {
+    className: "text-xs font-semibold uppercase tracking-wide text-slate2 mb-3"
+  }, "Account"), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-ink/80 mb-3"
+  }, "Signed in as ", /*#__PURE__*/React.createElement("span", {
+    className: "font-medium"
+  }, user.email)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: onSignOut,
+    className: "inline-flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl border border-slate2/25 bg-white hover:border-coral hover:text-coral focus-ring"
+  }, /*#__PURE__*/React.createElement(IconClose, {
+    className: "w-4 h-4"
+  }), "Sign out"))));
+}
+
 /* ------------------------------------------------------------- Settle Up --- */
 
 function SettleUp({
@@ -2128,6 +2650,25 @@ function App() {
   useEffect(() => {
     return auth.onAuthStateChanged(setUser);
   }, []);
+  const [theme, setTheme] = useState(loadTheme);
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    saveTheme(theme);
+  }, [theme]);
+  const [currencyCode, setCurrencyCode] = useState(CURRENCY.code);
+  function changeCurrency(code) {
+    setCurrency(code);
+    setCurrencyCode(code);
+  }
+  const [profile, setProfile] = useState(null);
+  useEffect(() => {
+    if (!user) {
+      setProfile(null);
+      return;
+    }
+    return subscribeUserProfile(user.uid, setProfile);
+  }, [user && user.uid]);
+  const [showSettings, setShowSettings] = useState(false);
   const [trips, setTrips] = useState([]);
   useEffect(() => {
     if (!user) {
@@ -2254,36 +2795,40 @@ function App() {
   }, /*#__PURE__*/React.createElement("div", {
     className: "sticky top-0 z-30 bg-paper/90 backdrop-blur border-b border-slate2/10"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "max-w-3xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3"
+    className: "max-w-3xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "w-8 h-8 rounded-xl bg-teal text-white flex items-center justify-center font-display font-bold"
-  }, "L"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
-    className: "font-display font-semibold leading-none"
+    className: "flex items-center gap-2 shrink-0"
+  }, profile && profile.avatarDataUrl ? /*#__PURE__*/React.createElement("img", {
+    src: profile.avatarDataUrl,
+    alt: "",
+    className: "w-8 h-8 rounded-xl object-cover shrink-0"
+  }) : /*#__PURE__*/React.createElement("span", {
+    className: "w-8 h-8 rounded-xl bg-teal text-white flex items-center justify-center font-display font-bold shrink-0"
+  }, "L"), /*#__PURE__*/React.createElement("div", {
+    className: "min-w-0"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "font-display font-semibold leading-none truncate"
   }, "Ledger & Luggage"), /*#__PURE__*/React.createElement("p", {
-    className: "text-[11px] text-slate2 leading-none mt-0.5"
+    className: "text-[11px] text-slate2 leading-none mt-0.5 hidden sm:block"
   }, "Every peso, every place"))), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2"
+    className: "flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end"
   }, activeTrips.length > 0 && /*#__PURE__*/React.createElement("select", {
     value: activeTripId,
     onChange: e => setActiveTripId(e.target.value),
-    className: "text-sm font-medium rounded-xl border border-slate2/25 bg-white px-3 py-1.5 focus-ring max-w-[9rem] sm:max-w-none"
+    className: "text-sm font-medium rounded-xl border border-slate2/25 bg-white px-3 py-1.5 focus-ring max-w-[8.5rem] sm:max-w-none"
   }, activeTrips.map(t => /*#__PURE__*/React.createElement("option", {
     key: t.id,
     value: t.id
   }, t.name))), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowNewTrip(true),
-    className: "hidden sm:inline-flex items-center gap-1 text-sm font-semibold px-3 py-1.5 rounded-xl border border-slate2/25 bg-white hover:border-teal hover:text-teal focus-ring"
+    className: "inline-flex items-center gap-1 text-sm font-semibold px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate2/25 bg-white hover:border-teal hover:text-teal focus-ring",
+    "aria-label": "New trip",
+    title: "New trip"
   }, /*#__PURE__*/React.createElement(IconPlus, {
     className: "w-4 h-4"
-  }), " Trip"), archivedTrips.length > 0 && /*#__PURE__*/React.createElement("button", {
-    onClick: () => setShowArchivedTrips(true),
-    className: "hidden sm:inline-flex items-center gap-1 text-sm font-semibold px-3 py-1.5 rounded-xl border border-slate2/25 bg-white hover:border-teal hover:text-teal focus-ring",
-    title: "View archived trips"
-  }, /*#__PURE__*/React.createElement(IconArchive, {
-    className: "w-4 h-4"
-  }), " Archived (", archivedTrips.length, ")"), trip && /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "hidden sm:inline"
+  }, "Trip")), trip && /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowEditTrip(true),
     className: "p-2 rounded-xl border border-slate2/25 bg-white text-slate2 hover:text-teal hover:border-teal focus-ring",
     "aria-label": "Edit this trip",
@@ -2298,11 +2843,11 @@ function App() {
   }, /*#__PURE__*/React.createElement(IconArchive, {
     className: "w-4 h-4"
   })), /*#__PURE__*/React.createElement("button", {
-    onClick: () => auth.signOut(),
-    className: "p-2 rounded-xl border border-slate2/25 bg-white text-slate2 hover:text-coral hover:border-coral focus-ring",
-    "aria-label": "Sign out",
-    title: "Signed in as " + (user.displayName || user.email) + " \u2014 sign out"
-  }, /*#__PURE__*/React.createElement(IconClose, {
+    onClick: () => setShowSettings(true),
+    className: "p-2 rounded-xl border border-slate2/25 bg-white text-slate2 hover:text-teal hover:border-teal focus-ring",
+    "aria-label": "Settings",
+    title: "Settings"
+  }, /*#__PURE__*/React.createElement(IconGear, {
     className: "w-4 h-4"
   })))), trip && /*#__PURE__*/React.createElement("div", {
     className: "max-w-3xl mx-auto px-4 sm:px-6 hidden md:flex gap-1 pb-2"
@@ -2407,6 +2952,23 @@ function App() {
     cancelLabel: "Keep it archived",
     onCancel: () => setDeleteArchivedId(null),
     onConfirm: () => deleteTripPermanently(deleteArchivedId)
+  }), showSettings && /*#__PURE__*/React.createElement(SettingsModal, {
+    user: user,
+    profile: profile,
+    theme: theme,
+    onThemeChange: setTheme,
+    currencyCode: currencyCode,
+    onCurrencyChange: changeCurrency,
+    archivedCount: archivedTrips.length,
+    onOpenArchived: () => {
+      setShowSettings(false);
+      setShowArchivedTrips(true);
+    },
+    onSignOut: () => {
+      setShowSettings(false);
+      auth.signOut();
+    },
+    onClose: () => setShowSettings(false)
   }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
