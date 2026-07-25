@@ -447,6 +447,29 @@ async function changeUserPassword(user, currentPassword, newPassword) {
   await user.reauthenticateWithCredential(cred);
   await user.updatePassword(newPassword);
 }
+async function deleteUserAccount(user, currentPassword) {
+  const cred = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+  await user.reauthenticateWithCredential(cred);
+  const snap = await tripsCollection.where('members', 'array-contains', user.uid).get();
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    const members = data.members || [];
+    if (members.length <= 1) {
+      await doc.ref.delete();
+    } else {
+      const memberInfo = {
+        ...data.memberInfo
+      };
+      delete memberInfo[user.uid];
+      await doc.ref.update({
+        members: firebase.firestore.FieldValue.arrayRemove(user.uid),
+        memberInfo
+      });
+    }
+  }
+  await usersCollection.doc(user.uid).delete().catch(() => {});
+  await user.delete();
+}
 function subscribeTrips(uid, callback, onError) {
   return tripsCollection.where('members', 'array-contains', uid).onSnapshot(snap => {
     const trips = snap.docs.map(d => ({
@@ -2072,6 +2095,10 @@ function SettingsModal({
   const [pwBusy, setPwBusy] = useState(false);
   const [pwMsg, setPwMsg] = useState('');
   const [pwError, setPwError] = useState('');
+  const [deletePw, setDeletePw] = useState('');
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const avatarUrl = profile && profile.avatarDataUrl;
   const initial = ((profile && profile.name) || user.displayName || user.email || '?').trim().charAt(0).toUpperCase();
   async function handleSaveName() {
@@ -2169,6 +2196,25 @@ function SettingsModal({
       setPwError(err.message || "Couldn't change your password.");
     } finally {
       setPwBusy(false);
+    }
+  }
+  async function handleDeleteAccount() {
+    setDeleteError('');
+    if (deleteConfirmText.trim().toUpperCase() !== 'DELETE') {
+      setDeleteError('Type DELETE to confirm.');
+      return;
+    }
+    if (!deletePw) {
+      setDeleteError('Enter your password to confirm.');
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      await deleteUserAccount(user, deletePw);
+      // onAuthStateChanged will fire with null and return the app to the login screen.
+    } catch (err) {
+      setDeleteError(err.message || "Couldn't delete your account.");
+      setDeleteBusy(false);
     }
   }
   return /*#__PURE__*/React.createElement(Modal, {
@@ -2325,7 +2371,36 @@ function SettingsModal({
     className: "inline-flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl border border-slate2/25 bg-white hover:border-coral hover:text-coral focus-ring"
   }, /*#__PURE__*/React.createElement(IconClose, {
     className: "w-4 h-4"
-  }), "Sign out"))));
+  }), "Sign out")), /*#__PURE__*/React.createElement("div", {
+    className: "border-t border-coral/30 pt-5"
+  }, /*#__PURE__*/React.createElement("h4", {
+    className: "text-xs font-semibold uppercase tracking-wide text-coral mb-3"
+  }, "Danger zone"), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-ink/80 mb-3"
+  }, "Deleting your account removes your profile and any trips only you belong to. Trips you share with others will just drop your membership \u2014 this can't be undone."), /*#__PURE__*/React.createElement(Field, {
+    label: "Current password"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "password",
+    className: inputCls,
+    value: deletePw,
+    onChange: e => setDeletePw(e.target.value)
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Type DELETE to confirm"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: deleteConfirmText,
+    onChange: e => setDeleteConfirmText(e.target.value),
+    placeholder: "DELETE"
+  })), deleteError && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-coral mb-3 -mt-2"
+  }, deleteError), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: handleDeleteAccount,
+    disabled: deleteBusy || deleteConfirmText.trim().toUpperCase() !== 'DELETE' || !deletePw,
+    className: "inline-flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl bg-coral text-white disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition focus-ring"
+  }, /*#__PURE__*/React.createElement(IconTrash, {
+    className: "w-4 h-4"
+  }), deleteBusy ? "Deleting\u2026" : "Delete my account permanently"))));
 }
 
 /* ------------------------------------------------------------- Settle Up --- */
