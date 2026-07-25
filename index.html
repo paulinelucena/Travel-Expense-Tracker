@@ -2090,6 +2090,19 @@ function SettingsModal({
     };
     reader.readAsDataURL(file);
   }
+  async function handleRemovePhoto() {
+    setAvatarError('');
+    setAvatarBusy(true);
+    try {
+      await updateUserProfile(user.uid, {
+        avatarDataUrl: firebase.firestore.FieldValue.delete()
+      });
+    } catch (err) {
+      setAvatarError(err.message || "Couldn't remove that photo.");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
   async function handleChangePassword() {
     setPwError('');
     setPwMsg('');
@@ -2130,14 +2143,23 @@ function SettingsModal({
     className: "w-16 h-16 rounded-full object-cover shrink-0"
   }) : /*#__PURE__*/React.createElement("span", {
     className: "w-16 h-16 rounded-full bg-teal-light text-teal-dark flex items-center justify-center font-display font-bold text-xl shrink-0"
-  }, initial), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("button", {
+  }, initial), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
     type: "button",
     onClick: () => fileInputRef.current && fileInputRef.current.click(),
     disabled: avatarBusy,
     className: "inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate2/25 bg-white hover:border-teal hover:text-teal focus-ring disabled:opacity-50"
   }, /*#__PURE__*/React.createElement(IconCamera, {
     className: "w-3.5 h-3.5"
-  }), avatarBusy ? "Uploading\u2026" : "Change photo"), /*#__PURE__*/React.createElement("input", {
+  }), avatarBusy ? "Uploading\u2026" : "Change photo"), avatarUrl && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: handleRemovePhoto,
+    disabled: avatarBusy,
+    className: "inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate2/25 bg-white text-slate2 hover:border-coral hover:text-coral focus-ring disabled:opacity-50"
+  }, /*#__PURE__*/React.createElement(IconClose, {
+    className: "w-3.5 h-3.5"
+  }), "Remove photo")), /*#__PURE__*/React.createElement("input", {
     ref: fileInputRef,
     type: "file",
     accept: "image/*",
