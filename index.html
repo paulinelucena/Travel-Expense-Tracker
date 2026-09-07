@@ -766,9 +766,26 @@ function getShares(expense) {
   expense.participants.forEach(p => shares[p] = share);
   return shares;
 }
-function isSettled(expense, personId) {
-  return (expense.settledParticipants || []).includes(personId);
+function amountPaidBy(expense, personId) {
+  const share = getShares(expense)[personId] || 0;
+  if ((expense.settledParticipants || []).includes(personId)) return share;
+  const raw = (expense.installments || {})[personId];
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  return Math.min(v, share);
 }
+function remainingFor(expense, personId) {
+  const share = getShares(expense)[personId] || 0;
+  return Math.max(0, share - amountPaidBy(expense, personId));
+}
+function isSettled(expense, personId) {
+  const share = getShares(expense)[personId] || 0;
+  if (share <= 0) return (expense.settledParticipants || []).includes(personId);
+  return amountPaidBy(expense, personId) >= share - 0.005;
+}
+const PaymentsContext = React.createContext({
+  onLogPayment: () => {}
+});
 function categoryTotals(trip) {
   const totals = {};
   CATEGORIES.forEach(c => totals[c.key] = 0);
@@ -793,10 +810,15 @@ function personBalances(trip) {
     paid[e.paidBy] = (paid[e.paidBy] || 0) + e.amount;
     const shares = getShares(e);
     Object.entries(shares).forEach(([pid, amt]) => {
-      if (pid !== e.paidBy && isSettled(e, pid)) {
-        // Already paid back directly — no longer owed, and the payer has
-        // effectively been reimbursed for this portion already.
-        reimbursed[e.paidBy] = (reimbursed[e.paidBy] || 0) + amt;
+      if (pid !== e.paidBy) {
+        // Any amount already handed back directly reduces what's still owed
+        // and counts as reimbursement for the person who fronted the money.
+        const back = Math.min(amountPaidBy(e, pid), amt);
+        if (back > 0) {
+          reimbursed[e.paidBy] = (reimbursed[e.paidBy] || 0) + back;
+        }
+        const left = amt - back;
+        if (left > 0.005) owed[pid] = (owed[pid] || 0) + left;
         return;
       }
       owed[pid] = (owed[pid] || 0) + amt;
@@ -1517,6 +1539,85 @@ function PersonSummary({
 
 /* --------------------------------------------------------- Expense row --- */
 
+function InstallmentControl({
+  expense,
+  personId,
+  align
+}) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState('');
+  const share = getShares(expense)[personId] || 0;
+  const paid = amountPaidBy(expense, personId);
+  const left = Math.max(0, share - paid);
+  const done = left <= 0.005;
+  const {
+    onLogPayment
+  } = React.useContext(PaymentsContext);
+  function submit(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const amt = parseFloat(value);
+    if (!Number.isFinite(amt) || amt <= 0) return;
+    onLogPayment(expense.id, personId, Math.min(paid + amt, share));
+    setValue('');
+    setOpen(false);
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: (align === 'right' ? "text-right " : "") + "min-w-[92px]"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setOpen(!open),
+    className: "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border focus-ring justify-center " + (done ? "bg-teal-light text-teal-dark border-transparent" : paid > 0 ? "border-teal/50 text-teal" : "border-slate2/25 text-slate2 hover:border-teal hover:text-teal")
+  }, done ? "\u2713 Paid" : paid > 0 ? formatCurrency(left) + " left" : "Mark paid"), paid > 0 && !done && /*#__PURE__*/React.createElement("p", {
+    className: "text-[10px] text-slate2 mt-0.5 tab-num"
+  }, formatCurrency(paid), " of ", formatCurrency(share), " paid"), open && /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 p-2 rounded-xl bg-paper border border-slate2/20 text-left"
+  }, done ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    className: "text-[11px] text-slate2 mb-2"
+  }, "Fully settled \u2014 ", formatCurrency(share), " paid back."), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => {
+      onLogPayment(expense.id, personId, 0);
+      setOpen(false);
+    },
+    className: "text-[11px] font-semibold text-coral hover:underline focus-ring rounded"
+  }, "Undo \u2014 mark unpaid")) : /*#__PURE__*/React.createElement("form", {
+    onSubmit: submit
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-[11px] text-slate2 mb-1.5"
+  }, "Owes ", formatCurrency(left), " of ", formatCurrency(share)), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-1.5"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    step: "0.01",
+    min: "0",
+    max: left.toFixed(2),
+    value: value,
+    autoFocus: true,
+    onChange: ev => setValue(ev.target.value),
+    placeholder: "Amount now",
+    className: "w-24 px-2 py-1 rounded-lg border border-slate2/30 bg-white text-[12px] tab-num focus-ring"
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "submit",
+    className: "px-2 py-1 rounded-lg bg-teal text-[11px] font-semibold text-white focus-ring"
+  }, "Log")), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3 mt-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => {
+      onLogPayment(expense.id, personId, share);
+      setOpen(false);
+    },
+    className: "text-[11px] font-semibold text-teal hover:underline focus-ring rounded"
+  }, "Paid in full"), paid > 0 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => {
+      onLogPayment(expense.id, personId, 0);
+      setOpen(false);
+    },
+    className: "text-[11px] font-semibold text-coral hover:underline focus-ring rounded"
+  }, "Reset")))));
+}
+
 function ExpenseRow({
   expense,
   people,
@@ -1573,11 +1674,10 @@ function ExpenseRow({
       className: "tab-num " + (settled ? "line-through text-slate2" : "text-slate2")
     }, formatCurrency(shares[pid] || 0)), isPayer ? /*#__PURE__*/React.createElement("span", {
       className: "text-[11px] font-medium text-slate2 w-[74px] text-right"
-    }, "Paid it") : /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      onClick: () => onToggleSettle(expense.id, pid),
-      className: "inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border focus-ring w-[74px] justify-center " + (settled ? "bg-teal-light text-teal-dark border-transparent" : "border-slate2/25 text-slate2 hover:border-teal hover:text-teal")
-    }, settled ? "✓ Paid" : "Mark paid")));
+    }, "Paid it") : /*#__PURE__*/React.createElement(InstallmentControl, {
+      expense: expense,
+      personId: pid
+    })));
   })), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-4"
   }, /*#__PURE__*/React.createElement("button", {
@@ -1629,7 +1729,8 @@ function AddExpenseModal({
       participants,
       splitType,
       customSplits: splitType === 'custom' ? Object.fromEntries(participants.map(pid => [pid, parseFloat(customAmounts[pid]) || 0])) : null,
-      settledParticipants: isEditing ? (expense.settledParticipants || []).filter(pid => participants.includes(pid)) : []
+      settledParticipants: isEditing ? (expense.settledParticipants || []).filter(pid => participants.includes(pid)) : [],
+      installments: isEditing ? Object.fromEntries(Object.entries(expense.installments || {}).filter(([pid]) => participants.includes(pid))) : {}
     };
     onSave(savedExpense);
   }
@@ -2531,11 +2632,13 @@ function PersonExpenseRow({
     className: "tab-num font-semibold text-sm " + (!isPayer && settled ? "line-through text-slate2" : "")
   }, formatCurrency(shares[personId] || 0)), isPayer ? /*#__PURE__*/React.createElement("p", {
     className: "text-[11px] text-slate2 mt-0.5"
-  }, "your share") : /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    onClick: () => onToggleSettle(expense.id, personId),
-    className: "mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border focus-ring " + (settled ? "bg-teal-light text-teal-dark border-transparent" : "border-slate2/25 text-slate2 hover:border-teal hover:text-teal")
-  }, settled ? "✓ Paid" : "Mark paid")), /*#__PURE__*/React.createElement("button", {
+  }, "your share") : /*#__PURE__*/React.createElement("div", {
+    className: "mt-1 flex justify-end"
+  }, /*#__PURE__*/React.createElement(InstallmentControl, {
+    expense: expense,
+    personId: personId,
+    align: "right"
+  }))), /*#__PURE__*/React.createElement("button", {
     type: "button",
     onClick: () => onEdit(expense),
     "aria-label": "Edit expense",
@@ -2861,18 +2964,35 @@ function App() {
       expenses: trip.expenses.filter(e => e.id !== id)
     }).catch(err => alert("Couldn't delete that expense: " + err.message));
   }
-  function toggleSettleShare(expenseId, personId) {
+  function toggleSettleShare(expenseId, personId, newPaidTotal) {
     const expenses = trip.expenses.map(e => {
       if (e.id !== expenseId) return e;
+      const share = getShares(e)[personId] || 0;
+      let target = newPaidTotal;
+      if (typeof target !== 'number') {
+        // Legacy toggle: flip between fully paid and unpaid.
+        target = isSettled(e, personId) ? 0 : share;
+      }
+      target = Math.max(0, Math.min(target, share));
       const settled = new Set(e.settledParticipants || []);
-      if (settled.has(personId)) {
-        settled.delete(personId);
-      } else {
+      const installments = {
+        ...(e.installments || {})
+      };
+      if (target >= share - 0.005 && share > 0) {
         settled.add(personId);
+        delete installments[personId];
+      } else {
+        settled.delete(personId);
+        if (target > 0.005) {
+          installments[personId] = Math.round(target * 100) / 100;
+        } else {
+          delete installments[personId];
+        }
       }
       return {
         ...e,
-        settledParticipants: Array.from(settled)
+        settledParticipants: Array.from(settled),
+        installments
       };
     });
     updateTripDoc(trip.id, {
@@ -2933,7 +3053,12 @@ function App() {
     label: 'Settle Up',
     icon: IconScale
   }];
-  return /*#__PURE__*/React.createElement("div", {
+  const paymentsCtx = React.useMemo(() => ({
+    onLogPayment: (expenseId, personId, newPaidTotal) => toggleSettleShare(expenseId, personId, newPaidTotal)
+  }), [trip]);
+  return /*#__PURE__*/React.createElement(PaymentsContext.Provider, {
+    value: paymentsCtx
+  }, /*#__PURE__*/React.createElement("div", {
     className: "min-h-screen pb-28 md:pb-12"
   }, /*#__PURE__*/React.createElement("div", {
     className: "sticky top-0 z-30 bg-paper/90 backdrop-blur border-b border-slate2/10"
@@ -3112,7 +3237,7 @@ function App() {
       auth.signOut();
     },
     onClose: () => setShowSettings(false)
-  }));
+  })));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
 </script>
