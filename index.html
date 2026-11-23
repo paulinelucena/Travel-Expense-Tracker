@@ -2540,7 +2540,14 @@ const EMPTY_FILTERS = {
 function countActiveFilters(f) {
   return (f.q.trim() ? 1 : 0) + (f.cat !== 'All' ? 1 : 0) + (f.paidBy ? 1 : 0) + (f.person ? 1 : 0) + (f.from ? 1 : 0) + (f.to ? 1 : 0);
 }
-function applyFilters(trip, f) {
+function sortExpenses(list, sort, people) {
+  const nameOf = id => ((people.find(p => p.id === id) || {}).name || '').toLowerCase();
+  const byDateDesc = (a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
+  const out = [...list];
+  if (sort === 'date_asc') out.sort((a, b) => -byDateDesc(a, b));else if (sort === 'person') out.sort((a, b) => nameOf(a.paidBy).localeCompare(nameOf(b.paidBy)) || byDateDesc(a, b));else out.sort(byDateDesc);
+  return out;
+}
+function applyFilters(trip, f, sort) {
   const q = f.q.trim().toLowerCase();
   const expenses = trip.expenses.filter(e => {
     if (q && !(e.description || '').toLowerCase().includes(q)) return false;
@@ -2553,7 +2560,7 @@ function applyFilters(trip, f) {
   });
   return {
     ...trip,
-    expenses
+    expenses: sortExpenses(expenses, sort || 'date_desc', trip.people)
   };
 }
 function exportTripToExcel(trip, filteredTrip, filtered) {
@@ -2563,7 +2570,7 @@ function exportTripToExcel(trip, filteredTrip, filtered) {
   }
   const nameOf = id => (trip.people.find(p => p.id === id) || {}).name || id;
   const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
-  const list = [...filteredTrip.expenses].sort((a, b) => a.date < b.date ? -1 : 1);
+  const list = [...filteredTrip.expenses];
   const header = ['Date', 'Description', 'Category', 'Amount', 'Paid by', 'Split type', 'Split between', ...trip.people.map(p => p.name + ' share')];
   const rows = [header];
   list.forEach(e => {
@@ -2635,7 +2642,9 @@ function FilterBar({
   filters,
   setFilters,
   shownCount,
-  onExport
+  onExport,
+  sort,
+  setSort
 }) {
   const active = countActiveFilters(filters);
   const set = patch => setFilters(prev => ({
@@ -2698,6 +2707,22 @@ function FilterBar({
     key: p.id,
     value: p.id
   }, "In split: ", p.name)))), /*#__PURE__*/React.createElement("div", {
+    className: "fb-row"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: inputCls,
+    value: sort,
+    onChange: e => setSort(e.target.value),
+    "aria-label": "Sort expenses",
+    style: {
+      flexBasis: '100%'
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "date_desc"
+  }, "Sort: Date, newest first"), /*#__PURE__*/React.createElement("option", {
+    value: "date_asc"
+  }, "Sort: Date, oldest first"), /*#__PURE__*/React.createElement("option", {
+    value: "person"
+  }, "Sort: Paid by (A\u2013Z)"))), /*#__PURE__*/React.createElement("div", {
     className: "fb-row"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
     className: "block text-[11px] font-semibold uppercase tracking-wide text-slate2 mb-1"
@@ -2794,7 +2819,7 @@ function ExpensesTab({
   onToggleSettle,
   hasFilters
 }) {
-  const sorted = [...trip.expenses].sort((a, b) => a.date < b.date ? 1 : -1);
+  const sorted = trip.expenses;
   return /*#__PURE__*/React.createElement("div", {
     className: "bg-card rounded-3xl shadow-sm px-6 py-5"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2878,7 +2903,7 @@ function PersonGroupCard({
   onToggleSettle,
   onEdit
 }) {
-  const related = [...trip.expenses].filter(e => e.paidBy === person.id || (e.participants || []).includes(person.id)).sort((a, b) => a.date < b.date ? 1 : -1);
+  const related = trip.expenses.filter(e => e.paidBy === person.id || (e.participants || []).includes(person.id));
   return /*#__PURE__*/React.createElement("div", {
     className: "bg-card rounded-3xl shadow-sm overflow-hidden"
   }, /*#__PURE__*/React.createElement("button", {
@@ -3150,6 +3175,7 @@ function App() {
   }, [trips]);
   const [tab, setTab] = useState('dashboard');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [sort, setSort] = useState('date_desc');
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
   const [showNewTrip, setShowNewTrip] = useState(false);
@@ -3158,7 +3184,7 @@ function App() {
   const [showArchivedTrips, setShowArchivedTrips] = useState(false);
   const [deleteArchivedId, setDeleteArchivedId] = useState(null);
   const trip = activeTrips.find(t => t.id === activeTripId) || activeTrips[0];
-  const filteredTrip = trip ? applyFilters(trip, filters) : null;
+  const filteredTrip = trip ? applyFilters(trip, filters, sort) : null;
   const filtersActive = countActiveFilters(filters) > 0;
   useEffect(() => {
     setFilters(EMPTY_FILTERS);
@@ -3382,6 +3408,8 @@ function App() {
     trip: trip,
     filters: filters,
     setFilters: setFilters,
+    sort: sort,
+    setSort: setSort,
     shownCount: filteredTrip.expenses.length,
     onExport: () => exportTripToExcel(trip, filteredTrip, filtersActive)
   }), trip && tab === 'expenses' && /*#__PURE__*/React.createElement(ExpensesTab, {
