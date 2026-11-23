@@ -44,6 +44,15 @@
   .ticket::before { left: -11px; }
   .ticket::after { right: -11px; }
 
+  .fb-row { display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:.5rem; }
+  .fb-row > * { flex:1 1 140px; min-width:0; }
+  .fb-actions { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; margin-top:.25rem; }
+  .fb-btn { padding:.4rem .9rem; border-radius:9999px; font-size:.8rem; font-weight:600; border:1px solid rgba(100,116,139,.25); background:#fff; cursor:pointer; }
+  .fb-btn-primary { background:#1F6F6B; color:#fff; border-color:transparent; }
+  .fb-btn:disabled { opacity:.4; cursor:not-allowed; }
+  .dark .fb-btn { color:#EDEAE0; }
+  .dark .fb-btn-primary { color:#fff; }
+  .split-tools { display:flex; gap:.75rem; margin-bottom:.5rem; }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: #C7C2AF; border-radius: 4px; }
 
@@ -389,6 +398,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 </script>
 <!-- Firebase: email/password auth + Firestore sync across devices -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
@@ -1707,7 +1717,7 @@ function AddExpenseModal({
   const [category, setCategory] = useState(expense ? expense.category : 'Food');
   const [date, setDate] = useState(expense ? expense.date : trip.endDate);
   const [paidBy, setPaidBy] = useState(expense ? expense.paidBy : trip.people[0] ? trip.people[0].id : '');
-  const [participants, setParticipants] = useState(expense ? expense.participants : trip.people.map(p => p.id));
+  const [participants, setParticipants] = useState(expense ? expense.participants : []);
   const [splitType, setSplitType] = useState(expense ? expense.splitType : 'equal');
   const [customAmounts, setCustomAmounts] = useState(expense && expense.customSplits ? Object.fromEntries(Object.entries(expense.customSplits).map(([k, v]) => [k, String(v)])) : {});
   const amt = parseFloat(amount) || 0;
@@ -1781,6 +1791,16 @@ function AddExpenseModal({
   }, p.name)))), /*#__PURE__*/React.createElement(Field, {
     label: "Split between"
   }, /*#__PURE__*/React.createElement("div", {
+    className: "split-tools"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setParticipants([]),
+    className: "text-xs font-semibold text-teal hover:underline focus-ring rounded"
+  }, "Clear all"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setParticipants(trip.people.map(p => p.id)),
+    className: "text-xs font-semibold text-teal hover:underline focus-ring rounded"
+  }, "Select all")), /*#__PURE__*/React.createElement("div", {
     className: "flex flex-wrap gap-2"
   }, trip.people.map(p => /*#__PURE__*/React.createElement(Pill, {
     key: p.id,
@@ -2506,6 +2526,215 @@ function SettingsModal({
 
 /* ------------------------------------------------------------- Settle Up --- */
 
+
+/* ------------------------------------------------------- Filters & export --- */
+
+const EMPTY_FILTERS = {
+  q: '',
+  cat: 'All',
+  paidBy: '',
+  person: '',
+  from: '',
+  to: ''
+};
+function countActiveFilters(f) {
+  return (f.q.trim() ? 1 : 0) + (f.cat !== 'All' ? 1 : 0) + (f.paidBy ? 1 : 0) + (f.person ? 1 : 0) + (f.from ? 1 : 0) + (f.to ? 1 : 0);
+}
+function applyFilters(trip, f) {
+  const q = f.q.trim().toLowerCase();
+  const expenses = trip.expenses.filter(e => {
+    if (q && !(e.description || '').toLowerCase().includes(q)) return false;
+    if (f.cat !== 'All' && e.category !== f.cat) return false;
+    if (f.paidBy && e.paidBy !== f.paidBy) return false;
+    if (f.person && !(e.participants || []).includes(f.person)) return false;
+    if (f.from && e.date < f.from) return false;
+    if (f.to && e.date > f.to) return false;
+    return true;
+  });
+  return {
+    ...trip,
+    expenses
+  };
+}
+function exportTripToExcel(trip, filteredTrip, filtered) {
+  if (typeof XLSX === 'undefined') {
+    alert("The Excel export library didn't load. Check your connection and refresh.");
+    return;
+  }
+  const nameOf = id => (trip.people.find(p => p.id === id) || {}).name || id;
+  const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
+  const list = [...filteredTrip.expenses].sort((a, b) => a.date < b.date ? -1 : 1);
+  const header = ['Date', 'Description', 'Category', 'Amount', 'Paid by', 'Split type', 'Split between', ...trip.people.map(p => p.name + ' share')];
+  const rows = [header];
+  list.forEach(e => {
+    const shares = getShares(e);
+    rows.push([e.date ? new Date(e.date + 'T00:00:00') : '', e.description, e.category, r2(e.amount), nameOf(e.paidBy), e.splitType === 'custom' ? 'Custom' : 'Equal', (e.participants || []).map(nameOf).join(', '), ...trip.people.map(p => shares[p.id] ? r2(shares[p.id]) : 0)]);
+  });
+  const totalRow = ['', 'TOTAL', '', r2(list.reduce((s, e) => s + e.amount, 0)), '', '', ''];
+  trip.people.forEach(p => totalRow.push(r2(list.reduce((s, e) => s + (getShares(e)[p.id] || 0), 0))));
+  rows.push(totalRow);
+  const ws1 = XLSX.utils.aoa_to_sheet(rows, {
+    cellDates: true
+  });
+  for (let r = 1; r < rows.length - 1; r++) {
+    const c = ws1[XLSX.utils.encode_cell({
+      r,
+      c: 0
+    })];
+    if (c && c.t === 'd') c.z = 'yyyy-mm-dd';
+  }
+  ws1['!cols'] = [{
+    wch: 12
+  }, {
+    wch: 34
+  }, {
+    wch: 15
+  }, {
+    wch: 12
+  }, {
+    wch: 12
+  }, {
+    wch: 11
+  }, {
+    wch: 28
+  }, ...trip.people.map(() => ({
+    wch: 13
+  }))];
+  const bal = personBalances(filteredTrip);
+  const rows2 = [['Traveler', 'Paid', 'Fair share', 'Net (+ gets back / - owes)']];
+  bal.forEach(b => rows2.push([b.name, r2(b.paid), r2(b.owed), r2(b.net)]));
+  const ws2 = XLSX.utils.aoa_to_sheet(rows2);
+  ws2['!cols'] = [{
+    wch: 20
+  }, {
+    wch: 14
+  }, {
+    wch: 14
+  }, {
+    wch: 26
+  }];
+  const cats = categoryTotals(filteredTrip);
+  const rows3 = [['Category', 'Total']];
+  cats.forEach(c => rows3.push([c.key, r2(c.amount)]));
+  const ws3 = XLSX.utils.aoa_to_sheet(rows3);
+  ws3['!cols'] = [{
+    wch: 20
+  }, {
+    wch: 14
+  }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws1, 'Expenses');
+  XLSX.utils.book_append_sheet(wb, ws2, 'Per Person');
+  XLSX.utils.book_append_sheet(wb, ws3, 'By Category');
+  const safe = (trip.name || 'trip').replace(/[^\w\-]+/g, '_');
+  const stamp = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, safe + '_expenses' + (filtered ? '_filtered' : '') + '_' + stamp + '.xlsx');
+}
+function FilterBar({
+  trip,
+  filters,
+  setFilters,
+  shownCount,
+  onExport
+}) {
+  const active = countActiveFilters(filters);
+  const set = patch => setFilters(prev => ({
+    ...prev,
+    ...patch
+  }));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "bg-card rounded-3xl shadow-sm px-6 py-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "fb-row"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    type: "search",
+    value: filters.q,
+    onChange: e => set({
+      q: e.target.value
+    }),
+    placeholder: "Search expenses\u2026",
+    style: {
+      flexBasis: '100%'
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-1.5 mb-3"
+  }, /*#__PURE__*/React.createElement(Pill, {
+    active: filters.cat === 'All',
+    onClick: () => set({
+      cat: 'All'
+    })
+  }, "All"), CATEGORIES.map(c => /*#__PURE__*/React.createElement(Pill, {
+    key: c.key,
+    active: filters.cat === c.key,
+    onClick: () => set({
+      cat: c.key
+    }),
+    colorHex: COLOR_HEX[c.color]
+  }, c.key))), /*#__PURE__*/React.createElement("div", {
+    className: "fb-row"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: inputCls,
+    value: filters.paidBy,
+    onChange: e => set({
+      paidBy: e.target.value
+    }),
+    "aria-label": "Filter by who paid"
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "Paid by: anyone"), trip.people.map(p => /*#__PURE__*/React.createElement("option", {
+    key: p.id,
+    value: p.id
+  }, "Paid by: ", p.name))), /*#__PURE__*/React.createElement("select", {
+    className: inputCls,
+    value: filters.person,
+    onChange: e => set({
+      person: e.target.value
+    }),
+    "aria-label": "Filter by who is in the split"
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "In split: anyone"), trip.people.map(p => /*#__PURE__*/React.createElement("option", {
+    key: p.id,
+    value: p.id
+  }, "In split: ", p.name)))), /*#__PURE__*/React.createElement("div", {
+    className: "fb-row"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    className: "block text-[11px] font-semibold uppercase tracking-wide text-slate2 mb-1"
+  }, "From"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    type: "date",
+    value: filters.from,
+    onChange: e => set({
+      from: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    className: "block text-[11px] font-semibold uppercase tracking-wide text-slate2 mb-1"
+  }, "To"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    type: "date",
+    value: filters.to,
+    onChange: e => set({
+      to: e.target.value
+    })
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "fb-actions"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-slate2"
+  }, "Showing ", shownCount, " of ", trip.expenses.length, " expense", trip.expenses.length === 1 ? '' : 's', active ? " \u00B7 " + active + " filter" + (active === 1 ? '' : 's') + " on" : ''), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, active > 0 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "fb-btn",
+    onClick: () => setFilters(EMPTY_FILTERS)
+  }, "Clear filters"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "fb-btn fb-btn-primary",
+    onClick: onExport,
+    disabled: shownCount === 0
+  }, "Export to Excel"))));
+}
+
 function SettleUp({
   trip
 }) {
@@ -2562,30 +2791,19 @@ function ExpensesTab({
   trip,
   onDelete,
   onEdit,
-  onToggleSettle
+  onToggleSettle,
+  hasFilters
 }) {
-  const [filter, setFilter] = useState('All');
-  const filtered = filter === 'All' ? trip.expenses : trip.expenses.filter(e => e.category === filter);
-  const sorted = [...filtered].sort((a, b) => a.date < b.date ? 1 : -1);
+  const sorted = [...trip.expenses].sort((a, b) => a.date < b.date ? 1 : -1);
   return /*#__PURE__*/React.createElement("div", {
     className: "bg-card rounded-3xl shadow-sm px-6 py-5"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-3 flex-wrap gap-2"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "font-display font-semibold"
-  }, "All expenses"), /*#__PURE__*/React.createElement("div", {
-    className: "flex flex-wrap gap-1.5"
-  }, /*#__PURE__*/React.createElement(Pill, {
-    active: filter === 'All',
-    onClick: () => setFilter('All')
-  }, "All"), CATEGORIES.map(c => /*#__PURE__*/React.createElement(Pill, {
-    key: c.key,
-    active: filter === c.key,
-    onClick: () => setFilter(c.key),
-    colorHex: COLOR_HEX[c.color]
-  }, c.key)))), sorted.length === 0 ? /*#__PURE__*/React.createElement("p", {
+  }, "All expenses")), sorted.length === 0 ? /*#__PURE__*/React.createElement("p", {
     className: "text-sm text-slate2 py-6 text-center"
-  }, "No expenses in this category yet.") : /*#__PURE__*/React.createElement("div", null, sorted.map(e => /*#__PURE__*/React.createElement(ExpenseRow, {
+  }, hasFilters ? "No expenses match your filters." : "No expenses yet.") : /*#__PURE__*/React.createElement("div", null, sorted.map(e => /*#__PURE__*/React.createElement(ExpenseRow, {
     key: e.id,
     expense: e,
     people: trip.people,
@@ -2931,6 +3149,7 @@ function App() {
     if (!activeTripId && activeTrips.length > 0) setActiveTripId(activeTrips[0].id);
   }, [trips]);
   const [tab, setTab] = useState('dashboard');
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
   const [showNewTrip, setShowNewTrip] = useState(false);
@@ -2939,6 +3158,11 @@ function App() {
   const [showArchivedTrips, setShowArchivedTrips] = useState(false);
   const [deleteArchivedId, setDeleteArchivedId] = useState(null);
   const trip = activeTrips.find(t => t.id === activeTripId) || activeTrips[0];
+  const filteredTrip = trip ? applyFilters(trip, filters) : null;
+  const filtersActive = countActiveFilters(filters) > 0;
+  useEffect(() => {
+    setFilters(EMPTY_FILTERS);
+  }, [trip && trip.id]);
   if (user === undefined) {
     return /*#__PURE__*/React.createElement("div", {
       className: "min-h-screen flex items-center justify-center text-sm text-slate2"
@@ -3154,13 +3378,20 @@ function App() {
     onToggleSettle: toggleSettleShare
   })), trip.expenses.length === 0 && /*#__PURE__*/React.createElement("p", {
     className: "text-sm text-slate2 py-6 text-center"
-  }, "No expenses logged yet \u2014 tap the + button to add one."))), trip && tab === 'expenses' && /*#__PURE__*/React.createElement(ExpensesTab, {
+  }, "No expenses logged yet \u2014 tap the + button to add one."))), trip && (tab === 'expenses' || tab === 'people') && /*#__PURE__*/React.createElement(FilterBar, {
     trip: trip,
+    filters: filters,
+    setFilters: setFilters,
+    shownCount: filteredTrip.expenses.length,
+    onExport: () => exportTripToExcel(trip, filteredTrip, filtersActive)
+  }), trip && tab === 'expenses' && /*#__PURE__*/React.createElement(ExpensesTab, {
+    trip: filteredTrip,
+    hasFilters: filtersActive,
     onDelete: deleteExpense,
     onEdit: setEditingExpense,
     onToggleSettle: toggleSettleShare
   }), trip && tab === 'people' && /*#__PURE__*/React.createElement(PersonExpensesTab, {
-    trip: trip,
+    trip: filteredTrip,
     onToggleSettle: toggleSettleShare,
     onEdit: setEditingExpense
   }), trip && tab === 'settle' && /*#__PURE__*/React.createElement(SettleUp, {
