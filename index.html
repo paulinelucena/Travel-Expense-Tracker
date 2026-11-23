@@ -2540,11 +2540,16 @@ const EMPTY_FILTERS = {
 function countActiveFilters(f) {
   return (f.q.trim() ? 1 : 0) + (f.cat !== 'All' ? 1 : 0) + (f.paidBy ? 1 : 0) + (f.person ? 1 : 0) + (f.from ? 1 : 0) + (f.to ? 1 : 0);
 }
-function sortExpenses(list, sort, people) {
+function hasUnpaidShare(e, personId) {
+  const owes = pid => pid !== e.paidBy && (getShares(e)[pid] || 0) > 0 && !isSettled(e, pid);
+  return personId ? owes(personId) : (e.participants || []).some(owes);
+}
+function sortExpenses(list, sort, people, personId) {
   const nameOf = id => ((people.find(p => p.id === id) || {}).name || '').toLowerCase();
   const byDateDesc = (a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
   const out = [...list];
-  if (sort === 'date_asc') out.sort((a, b) => -byDateDesc(a, b));else if (sort === 'person') out.sort((a, b) => nameOf(a.paidBy).localeCompare(nameOf(b.paidBy)) || byDateDesc(a, b));else out.sort(byDateDesc);
+  const unpaidRank = e => hasUnpaidShare(e, personId) ? 0 : 1;
+  if (sort === 'unpaid') out.sort((a, b) => unpaidRank(a) - unpaidRank(b) || byDateDesc(a, b));else if (sort === 'paid') out.sort((a, b) => unpaidRank(b) - unpaidRank(a) || byDateDesc(a, b));else if (sort === 'date_asc') out.sort((a, b) => -byDateDesc(a, b));else if (sort === 'person') out.sort((a, b) => nameOf(a.paidBy).localeCompare(nameOf(b.paidBy)) || byDateDesc(a, b));else out.sort(byDateDesc);
   return out;
 }
 function applyFilters(trip, f, sort) {
@@ -2722,7 +2727,11 @@ function FilterBar({
     value: "date_asc"
   }, "Sort: Date, oldest first"), /*#__PURE__*/React.createElement("option", {
     value: "person"
-  }, "Sort: Paid by (A\u2013Z)"))), /*#__PURE__*/React.createElement("div", {
+  }, "Sort: Paid by (A\u2013Z)"), /*#__PURE__*/React.createElement("option", {
+    value: "unpaid"
+  }, "Sort: Not paid first"), /*#__PURE__*/React.createElement("option", {
+    value: "paid"
+  }, "Sort: Paid first"))), /*#__PURE__*/React.createElement("div", {
     className: "fb-row"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
     className: "block text-[11px] font-semibold uppercase tracking-wide text-slate2 mb-1"
@@ -2901,9 +2910,10 @@ function PersonGroupCard({
   open,
   onToggleOpen,
   onToggleSettle,
-  onEdit
+  onEdit,
+  sort
 }) {
-  const related = trip.expenses.filter(e => e.paidBy === person.id || (e.participants || []).includes(person.id));
+  const related = sortExpenses(trip.expenses.filter(e => e.paidBy === person.id || (e.participants || []).includes(person.id)), sort, trip.people, person.id);
   return /*#__PURE__*/React.createElement("div", {
     className: "bg-card rounded-3xl shadow-sm overflow-hidden"
   }, /*#__PURE__*/React.createElement("button", {
@@ -2971,7 +2981,8 @@ function PersonGroupCard({
 function PersonExpensesTab({
   trip,
   onToggleSettle,
-  onEdit
+  onEdit,
+  sort
 }) {
   const [openIds, setOpenIds] = useState(() => trip.people[0] ? [trip.people[0].id] : []);
   const balances = personBalances(trip);
@@ -2993,7 +3004,8 @@ function PersonExpensesTab({
     open: openIds.includes(p.id),
     onToggleOpen: () => toggleOpen(p.id),
     onToggleSettle: onToggleSettle,
-    onEdit: onEdit
+    onEdit: onEdit,
+    sort: sort
   })));
 }
 
@@ -3420,6 +3432,7 @@ function App() {
     onToggleSettle: toggleSettleShare
   }), trip && tab === 'people' && /*#__PURE__*/React.createElement(PersonExpensesTab, {
     trip: filteredTrip,
+    sort: sort,
     onToggleSettle: toggleSettleShare,
     onEdit: setEditingExpense
   }), trip && tab === 'settle' && /*#__PURE__*/React.createElement(SettleUp, {
